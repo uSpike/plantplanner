@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Native Plant Garden Planner</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .form-group { margin-bottom: 10px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { border: 1px solid #ccc; padding: 5px; text-align: center; }
+        .quantity-td { white-space: nowrap; }
+        img { height: 100px; width: 100px; object-fit: cover; }
+        .unselected { color: grey; background: none !important; }
+
+        .bloom-chart { margin: 20px 0; display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; }
+        .month-bar {
+            width: 100%; height: 300px;
+            display: flex; flex-direction: column-reverse; background: #eee;
+            border: 1px solid #ccc;
+        }
+        .color-segment {
+            width: 100%; display: flex; align-items: center; justify-content: center;
+            font-size: 12px; position: relative;
+        }
+        .color-segment span { position: absolute; }
+
+        .plant-popup {
+            display: none;
+            position: fixed;
+            background: white;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            padding: 10px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+            z-index: 1000;
+            max-width: 300px;
+            /* max-height: 400px; */
+            overflow-y: auto;
+        }
+        .color-segment:hover > .plant-popup { display: block; }
+
+        .plant-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 5px;
+        }
+
+        .plant-item { text-align: center; }
+
+        .plant-item img {
+            width: 90px;
+            height: 100px;
+            object-fit: cover;
+            border-radius: 5px;
+        }
+
+        .plant-name { margin-top: 0px; font-size: 12px; }
+        button { margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>Native Plant Garden Planner</h1>
+    <form id="gardenForm">
+        <div class="form-group">
+            <label for="plotSize">Plot Size (sq ft):</label>
+            <input type="number" id="plotSize" min="0" required>
+        </div>
+        <div class="form-group">
+            <label for="sun">Sun Environment:</label>
+            <select id="sun">
+                <option value="full">Full Sun</option>
+                <option value="partial">Partial Sun</option>
+                <option value="shade">Shade</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="heightLim">Height Limitation (ft, optional):</label>
+            <input type="number" id="heightLim" min="0">
+        </div>
+        <div class="form-group">
+            <label for="soilType">Soil Type:</label>
+            <select id="soilType">
+                <option value="clay">Clay</option>
+                <option value="loam">Loam</option>
+                <option value="sand">Sand</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label for="soilMoisture">Soil Moisture:</label>
+            <select id="soilMoisture">
+                <option value="wet">Wet</option>
+                <option value="moist">Moist</option>
+                <option value="medium">Medium</option>
+                <option value="dry">Dry</option>
+            </select>
+        </div>
+        <div class="form-group">
+            <label>Selection process:</label>
+            <label><input type="checkbox" id="selectEnvironment" checked>Environment</label>
+            <label><input type="checkbox" id="selectBloomDiversity" checked>Bloom Color Diversity</label>
+            <label><input type="checkbox" id="selectPlantDiversity" checked>Plant Diversity</label>
+        </div>
+    <!--
+        <div class="form-group">
+            <label>Pest Problems:</label>
+            <label><input type="checkbox" id="deer"> Deer</label>
+        </div>
+    -->
+        <div class="form-group">
+            <label>Desired Bloom Colors:</label>
+            <label><input type="checkbox" name="bloomColors" value="Yellow" checked> Yellow</label>
+            <label><input type="checkbox" name="bloomColors" value="Orange" checked> Orange</label>
+            <label><input type="checkbox" name="bloomColors" value="Pink" checked> Pink</label>
+            <label><input type="checkbox" name="bloomColors" value="Red" checked>  Red</label>
+            <label><input type="checkbox" name="bloomColors" value="Blue" checked> Blue</label>
+            <label><input type="checkbox" name="bloomColors" value="Purple" checked> Purple</label>
+            <label><input type="checkbox" name="bloomColors" value="White" checked> White</label>
+        </div>
+        <div class="form-group">
+            <label>Desired Bloom Months:</label>
+            <label><input type="checkbox" name="bloomMonths" value="April" checked> April</label>
+            <label><input type="checkbox" name="bloomMonths" value="May" checked> May</label>
+            <label><input type="checkbox" name="bloomMonths" value="June" checked> June</label>
+            <label><input type="checkbox" name="bloomMonths" value="July" checked> July</label>
+            <label><input type="checkbox" name="bloomMonths" value="August" checked> August</label>
+            <label><input type="checkbox" name="bloomMonths" value="September" checked> September</label>
+            <label><input type="checkbox" name="bloomMonths" value="October" checked> October</label>
+        </div>
+        <button type="submit">Plan Garden</button>
+    </form>
+
+    <button id="toggleUnselected">Show Unselected Plants</button>
+    <div id="plantContainer"></div>
+    <div class="bloom-chart" id="bloomChart"></div>
+    <button id="export">Export</button>
+
+    <script type="text/javascript" src="plantdb.js"></script>
+    <script>
+
+        // get list of bloom colors from checkbox
+        const bloomColors = ["Yellow", "Orange", "Pink", "Red", "Blue", "Purple", "White"];
+        const months = ["April", "May", "June", "July", "August", "September", "October"];
+
+        let showUnselected = false;
+        let currentSun, currentSoilType, currentSoilMoisture;
+
+        function parseHeight(heightStr) {
+            const parts = heightStr.split('-');
+            return parts.length === 1 ? parseFloat(parts[0]) : parseFloat(parts[1]);
+        }
+
+        function colorToCSS(color) {
+            return {
+                'Yellow': '#ffedc9',
+                'Orange': '#f7c983',
+                'Pink': '#f7b9c9',
+                'Red': '#f79c83',
+                'Blue': '#94e0f7',
+                'Purple':'#ceb9f7',
+                'White': '#ffffff'
+            }[color] || '#000000';
+        }
+
+        function getUniqueBloomColors(plant) {
+            return [...new Set(Object.values(plant.bloom).flat())];
+        }
+
+        function mapScoreToEmoji(score) {
+            return score == 2 ? '✅' : score == 1 ? '🆗' : '⛔';
+        }
+
+        function getBloomDetails(plant) {
+            const bloomDetails = [];
+            for (let month in plant.bloom) {
+                const colors = plant.bloom[month];
+                if (colors.length > 0) {
+                    bloomDetails.push(`${month}: ${colors.join(' and ')}`);
+                }
+            }
+            return bloomDetails
+        }
+
+        // Event listener for the form submission
+        document.getElementById('gardenForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+
+            plants.forEach(plant => plant.quantity = 0);
+            plants.forEach(plant => plant.successScore = 0);
+            plants.forEach(plant => plant.combinedScore = 0);
+
+            // Gather user inputs (assumed form fields)
+            const plotSize = parseFloat(document.getElementById('plotSize').value);
+            currentSun = document.getElementById('sun').value;
+            const heightLim = parseFloat(document.getElementById('heightLim').value) || Infinity;
+            currentSoilType = document.getElementById('soilType').value;
+            currentSoilMoisture = document.getElementById('soilMoisture').value;
+            //const deer = document.getElementById('deer').checked;
+            const desiredBloomColors = Array.from(document.querySelectorAll('input[name="bloomColors"]:checked')).map(cb => cb.value);
+            const desiredBloomMonths = Array.from(document.querySelectorAll('input[name="bloomMonths"]:checked')).map(cb => cb.value);
+
+            const selectEnvironment = document.getElementById('selectEnvironment').checked ? 1 : 0;
+            const selectBloomDiversity = document.getElementById('selectBloomDiversity').checked ? 1 : 0;
+            const selectPlantDiversity = document.getElementById('selectPlantDiversity').checked ? 1 : 0;
+
+            // Filter plants based on user inputs and generate success score
+            const filteredPlants = plants.filter(plant => {
+                if (parseHeight(plant.height) > heightLim) return;
+                //if (deer && !plant.otherFactors.deerResistance) return false;
+                if (desiredBloomColors.length > 0 && !desiredBloomColors.some(c => Object.values(plant.bloom).flat().includes(c))) return false;
+                if (desiredBloomMonths.length > 0 && !desiredBloomMonths.some(m => plant.bloom[m])) return false;
+
+                const lightScore = plant.light[currentSun];
+                const soilScore = plant.soilType[currentSoilType];
+                const moistureScore = plant.soilMoisture[currentSoilMoisture];
+                plant.successScore = (lightScore * soilScore * moistureScore);
+                if (selectEnvironment && plant.successScore === 0) return false;
+                return true;
+            });
+
+            // Initialize tracking variables
+            const currentBlooms = {};
+            months.forEach(month => {
+                currentBlooms[month] = {};
+                bloomColors.forEach(color => currentBlooms[month][color] = 0);
+            });
+            let totalArea = 0;
+
+            console.log("<<<Starting selection process>>>");
+
+            // Plant selection loop
+            while (true) {
+                // Filter candidates that fit within remaining area
+                let fitCandidates = filteredPlants.filter(plant => {
+                    const plantArea = plant.spacing * plant.spacing;
+                    return totalArea + plantArea <= plotSize;
+                });
+                if (fitCandidates.length === 0) {
+                    console.log("No candidates fit within remaining area");
+                    break;
+                }
+
+                // Calculate color diversity score
+                fitCandidates.forEach(plant => {
+                    let diversityScore = 0;
+                    for (let month in plant.bloom) {
+                        const colors = plant.bloom[month];
+                        if (colors.length > 0) {
+                            const minScore = Math.min(...colors.map(color => 1 / (1 + currentBlooms[month][color])));
+                            diversityScore += minScore;
+                            //console.log(`${plant.name}: ${month} (${JSON.stringify(currentBlooms[month])}): ${colors.join(', ')} ${minScore.toFixed(2)}`);
+                        }
+                    }
+
+                    // Quantity factor: higher quantity reduces score
+                    let quantityFactor = 1;
+                    if (selectPlantDiversity) {
+                        quantityFactor = 1 / ((plant.quantity + 1) / 5);
+                    }
+                    // Combined score: weighted average of success and diversity
+                    plant.combinedScore = (0.5 * plant.successScore + 0.5 * diversityScore * selectBloomDiversity) * quantityFactor;
+
+                    // Log scores for debugging
+                    console.log(`Plant: ${plant.name} (${plant.quantity}), Success: ${plant.successScore.toFixed(2)}, Diversity: ${diversityScore.toFixed(2)}, Quantity: ${quantityFactor.toFixed(2)}, Combined: ${plant.combinedScore.toFixed(2)}`);
+                });
+
+                // Select the plants with the highest combined score
+                const bestPlant = fitCandidates.reduce((prev, curr) => prev.combinedScore > curr.combinedScore ? prev : curr);
+                bestPlant.quantity += 1;
+                totalArea += bestPlant.spacing * bestPlant.spacing;
+
+                // Update bloom tracking
+                for (let month in bestPlant.bloom) {
+                    bestPlant.bloom[month].forEach(color => {
+                        currentBlooms[month][color] += 1;
+                    });
+                }
+
+                // Log the selection
+                console.log(`Selected ${bestPlant.name} (score: ${bestPlant.combinedScore.toFixed(2)}), Total Area: ${totalArea.toFixed(2)}`);
+            }
+
+            // Display results (assumed functions)
+            displayPlants();
+            updateBloomChart();
+        });
+
+        document.getElementById('toggleUnselected').addEventListener('click', () => {
+            showUnselected = !showUnselected;
+            document.getElementById('toggleUnselected').textContent = showUnselected ? 'Hide Unselected Plants' : 'Show Unselected Plants';
+            displayPlants();
+        });
+
+        function displayPlants() {
+            const container = document.getElementById('plantContainer');
+            const plantsToDisplay = plants.filter(p => p.quantity > 0 || showUnselected).sort();
+            let tableHTML = `
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Image</th>
+                            <th>Name</th>
+                            <th>Quantity</th>
+                            <th>Height</th>
+                            <th>Spacing</th>
+                            <th>Bloom</th>
+                            <th>Sun</th>
+                            <th>Soil</th>
+                            <th>Moisture</th>
+                            <th>Sq Ft</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+            // sort by square footage
+            plantsToDisplay.sort((a, b) => (b.quantity * b.spacing * b.spacing) - (a.quantity * a.spacing * a.spacing));
+            plantsToDisplay.forEach(plant => {
+                const colors = getUniqueBloomColors(plant);
+                const bgColor = plant.quantity > 0 ? (colors.length === 1 ? colorToCSS(colors[0]) : `linear-gradient(to bottom, ${colors.map(colorToCSS).join(',')})`) : '';
+                const rowClass = plant.quantity === 0 ? 'unselected' : '';
+                const bloomDetails = getBloomDetails(plant).join("<br />");
+                tableHTML += `
+                    <tr style="background: ${bgColor}" class="${rowClass}">
+                        <td><img src="${plant.picture}" alt="${plant.name}"></td>
+                        <td>${plant.name}</td>
+                        <td class="quantity-td">
+                            <button onclick="adjustQuantity(${plant.id}, -1)" ${plant.quantity === 0 ? 'disabled' : ''}>-</button>
+                            <span id="qty-${plant.id}">${plant.quantity}</span>
+                            <button onclick="adjustQuantity(${plant.id}, 1)">+</button>
+                        </td>
+                        <td>${plant.height} ft</td>
+                        <td>${plant.spacing} ft</td>
+                        <td>${bloomDetails}</td>
+                        <td>${mapScoreToEmoji(plant.light[currentSun])}</td>
+                        <td>${mapScoreToEmoji(plant.soilType[currentSoilType])}</td>
+                        <td>${mapScoreToEmoji(plant.soilMoisture[currentSoilMoisture])}</td>
+                        <td>${(plant.quantity * plant.spacing * plant.spacing).toFixed(2)}</td>
+                    </tr>
+                `;
+            });
+            const totalPlants = plants.reduce((sum, p) => sum + p.quantity, 0);
+            const totalSqFt = plants.reduce((sum, p) => sum + p.quantity * p.spacing * p.spacing, 0).toFixed(2);
+            tableHTML += `
+                    </tbody>
+                    <tfoot>
+                        <tr>
+                            <td colspan="2">Total</td>
+                            <td>${totalPlants}</td>
+                            <td colspan="6"></td>
+                            <td>${totalSqFt}</td>
+                        </tr>
+                    </tfoot>
+                </table>
+            `;
+            container.innerHTML = tableHTML;
+        }
+
+        function adjustQuantity(id, delta) {
+            let plant = plants.find(p => p.id === id);
+
+            if (delta == 1) {
+                plant.quantity += 1;
+            } else {
+                if (plant.quantity === 0) {
+                    return;
+                }
+                plant.quantity -= 1;
+            }
+            displayPlants();
+            updateBloomChart();
+        }
+
+        function updateBloomChart() {
+            const chart = document.getElementById('bloomChart');
+            chart.innerHTML = '';
+
+            const bloomData = {};
+            months.forEach(m => bloomData[m] = {});
+            plants.forEach(plant => {
+                if (plant.quantity === 0) return;
+                for (let [month, colors] of Object.entries(plant.bloom)) {
+                    colors.forEach(c => {
+                        bloomData[month][c] = (bloomData[month][c] || 0) + plant.quantity;
+                    });
+                }
+            });
+
+            months.forEach(month => {
+                const barContainer = document.createElement('div');
+                barContainer.style.display = 'flex';
+                barContainer.style.flexDirection = 'column';
+                barContainer.style.alignItems = 'center';
+                const bar = document.createElement('div');
+                bar.className = 'month-bar';
+                bar.title = month;
+                const total = Object.values(bloomData[month]).reduce((a, b) => a + b, 0);
+
+                if (total > 0) {
+                    // sort by color
+
+                    Object.entries(bloomData[month]).sort().forEach(([color, count]) => {
+                        const segment = document.createElement('div');
+                        segment.className = 'color-segment';
+                        const cssColor = colorToCSS(color);
+                        segment.style.backgroundColor = cssColor;
+                        segment.style.height = `${(count / total) * 100}%`;
+                        segment.innerHTML = `<span>${count}</span>`;
+
+                        // Create a new popup element
+                        const popup = document.createElement('div');
+                        popup.className = 'plant-popup';
+                        //popup.style.backgroundColor = cssColor;
+
+                        let popupContent = `<h3>${month} - ${color}</h3><div class="plant-grid">`;
+
+                        plants.forEach(plant => {
+                            if (plant.quantity === 0 ||
+                                !plant.bloom[month]?.includes(color)) {
+                                return;
+                            }
+
+                            popupContent += `
+                                <div class="plant-item">
+                                    <img src="${plant.picture}" alt="">
+                                    <div class="plant-name">${plant.name} (${plant.quantity})</div>
+                                </div>
+                            `;
+                        });
+
+                        popupContent += '</div>';
+
+                        // Set popup content
+                        popup.innerHTML = popupContent;
+
+                        // Position popup above the segment
+                        segment.onmouseover = (e) => {
+                            const rect = segment.getBoundingClientRect();
+                            popup.style.top = `${rect.top - popup.offsetHeight + 5}px`;
+                            // move if offscreen
+                            //const left = rect.left + rect.width / 2 - popup.offsetWidth / 2;
+                            //popup.style.left = `${Math.max(5, Math.min(left, window.innerWidth - popup.offsetWidth - 5))}px`;
+
+                        };
+                        segment.appendChild(popup);
+
+                        bar.appendChild(segment);
+                    });
+                } else {
+                    //bar.textContent = 'None';
+                }
+                barContainer.appendChild(bar);
+                barContainer.appendChild(document.createTextNode(month));
+                chart.appendChild(barContainer);
+            });
+        }
+
+        document.getElementById('export').addEventListener('click', () => {
+            const win = window.open('', '_blank');
+            const plantsWithQuantity = plants.filter(p => p.quantity > 0);
+            win.document.write(`
+                <html>
+                    <head><title>Garden Plan</title><style>table { border-collapse: collapse; } th, td { border: 1px solid #ccc; padding: 5px; }</style></head>
+                    <body>
+                        <h1>Garden Plan</h1>
+                        <table>
+                            <tr><th>Name</th><th>Qty</th><th>Height</th><th>Spacing</th><th>Bloom</th></tr>
+                            ${plantsWithQuantity.map(p => `<tr><td>${p.name}</td><td>${p.quantity}</td><td>${p.height}</td><td>${p.spacing}</td><td>${getBloomDetails(p).join(' ')}</td></tr>`).join('')}
+                        </table>
+                    </body>
+                </html>
+            `);
+            win.document.close();
+        });
+    </script>
+</body>
+</html>
